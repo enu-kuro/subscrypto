@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 // TODO: When to take a fee?
 // TODO: Meta Transaction
 // native token使えないかも
-// 毎月同じ日に課金するのはどうやって実現できる？
+// 毎月同じ日に課金する実装は結構面倒。 参考: https://github.com/bokkypoobah/OrbsSubscriptionSmartContractAudit/blob/alpha/contracts/DateTime.sol
 contract Subscrypto is Ownable {
     address public tokenAddress;
     uint256 public price;
@@ -122,6 +122,11 @@ contract Subscrypto is Ownable {
 
             subscriber.count += 1;
         }
+    }
+
+    function withdrawToken(uint256 _amount) external onlyOwner {
+        IERC20 token = IERC20(tokenAddress);
+        token.transfer(msg.sender, _amount);
     }
 }
 

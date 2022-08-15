@@ -236,4 +236,39 @@ describe("Subscrypto", function () {
       subscrypto.connect(account2).cancelSubscription(account1.address)
     ).to.be.revertedWith("only sbscriber or owner can cencel subscriptions");
   });
+
+  it("WithdrawToken", async function () {
+    const { subscrypto, token, owner, account1, account2 } = await loadFixture(
+      deployFixture
+    );
+
+    await token
+      .connect(account1)
+      .approve(subscrypto.address, ethers.constants.MaxUint256);
+    await token
+      .connect(account2)
+      .approve(subscrypto.address, ethers.constants.MaxUint256);
+
+    await subscrypto.connect(account1).subscribe();
+    await subscrypto.connect(account2).subscribe();
+
+    const balance = await token.balanceOf(subscrypto.address);
+    await subscrypto.connect(owner).withdrawToken(balance);
+
+    expect(await token.balanceOf(owner.address)).to.equal(PRICE * 2);
+  });
+
+  it("WithdrawToken should fail with 'Ownable: caller is not the owner'", async function () {
+    const { subscrypto, token, owner, account1, account2, account3 } =
+      await loadFixture(deployFixture);
+    await token
+      .connect(account1)
+      .approve(subscrypto.address, ethers.constants.MaxUint256);
+    await subscrypto.connect(account1).subscribe();
+
+    const balance = await token.balanceOf(subscrypto.address);
+    await expect(
+      subscrypto.connect(account1).withdrawToken(balance)
+    ).to.be.revertedWith("Ownable: caller is not the owner");
+  });
 });
