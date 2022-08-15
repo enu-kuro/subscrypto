@@ -81,15 +81,16 @@ describe("Subscrypto", function () {
   });
 
   it("Subscribe should fail with 'Already subscribed'", async function () {
-    // TODO:
-    // const { subscrypto, token, account1 } = await loadFixture(deployFixture);
-    // // require unlimited token allowance...
-    // await token
-    //   .connect(account1)
-    //   .approve(subscrypto.address, ethers.constants.MaxUint256);
-    // await expect(subscrypto.connect(account1).subscribe()).to.be.revertedWith(
-    //   "Already subscribed"
-    // );
+    const { subscrypto, token, account1 } = await loadFixture(deployFixture);
+
+    await token
+      .connect(account1)
+      .approve(subscrypto.address, ethers.constants.MaxUint256);
+    await subscrypto.connect(account1).subscribe();
+
+    await expect(subscrypto.connect(account1).subscribe()).to.be.revertedWith(
+      "Already subscribed"
+    );
   });
 
   it("ExecutePayment", async function () {
@@ -146,6 +147,26 @@ describe("Subscrypto", function () {
     ).to.be.revertedWith("Already paid");
   });
 
+  it("ExecutePayment should fail with 'user not found'", async function () {
+    const { subscrypto, token, owner, account1, account2 } = await loadFixture(
+      deployFixture
+    );
+
+    await token
+      .connect(account1)
+      .approve(subscrypto.address, ethers.constants.MaxUint256);
+
+    await subscrypto.connect(account1).subscribe();
+
+    const timestamp = await time.latest();
+    await time.increaseTo(timestamp + INTERVAL);
+
+    // subscribeしていないaddressに対して課金実行
+    await expect(
+      subscrypto.connect(owner).executePayment([account2.address])
+    ).to.be.revertedWith("user not found");
+  });
+
   it("GetPaymentTargets", async function () {
     const { subscrypto, token, owner, account1, account2, account3 } =
       await loadFixture(deployFixture);
@@ -182,5 +203,37 @@ describe("Subscrypto", function () {
     ).filter((target) => target !== ethers.constants.AddressZero);
 
     expect(targets2.length).to.equal(0);
+  });
+
+  it("CancelSubscription", async function () {
+    const { subscrypto, token, account1 } = await loadFixture(deployFixture);
+    await token
+      .connect(account1)
+      .approve(subscrypto.address, ethers.constants.MaxUint256);
+
+    await subscrypto.connect(account1).subscribe();
+    expect(await subscrypto.subscriberAddresses(0)).to.equal(account1.address);
+
+    await subscrypto.connect(account1).cancelSubscription(account1.address);
+    expect(await subscrypto.subscriberAddresses(0)).to.equal(
+      ethers.constants.AddressZero
+    );
+    // revoke
+    await token.connect(account1).approve(subscrypto.address, 0);
+  });
+
+  it("CancelSubscription should fail with 'only sbscriber or owner can cencel subscriptions", async function () {
+    const { subscrypto, token, account1, account2 } = await loadFixture(
+      deployFixture
+    );
+    await token
+      .connect(account1)
+      .approve(subscrypto.address, ethers.constants.MaxUint256);
+
+    await subscrypto.connect(account1).subscribe();
+
+    await expect(
+      subscrypto.connect(account2).cancelSubscription(account1.address)
+    ).to.be.revertedWith("only sbscriber or owner can cencel subscriptions");
   });
 });

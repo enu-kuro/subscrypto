@@ -35,8 +35,23 @@ contract Subscrypto is Ownable {
         interval = _interval;
     }
 
+    function removeSubscriber(address _address) internal {
+        uint256 targetIndex;
+        for (uint256 i = 0; i < subscriberAddresses.length; i++) {
+            if (subscriberAddresses[i] == _address) {
+                targetIndex = i;
+                delete subscriberAddresses[i];
+                delete subscribers[_address];
+                break;
+            } else if (i == subscriberAddresses.length - 1) {
+                revert("user not found");
+            }
+        }
+    }
+
     function subscribe() external {
-        // TODO: Validation
+        require(subscribers[msg.sender].startAt == 0, "Already subscribed");
+
         IERC20 token = IERC20(tokenAddress);
         require(
             token.transferFrom(msg.sender, address(this), price),
@@ -46,8 +61,13 @@ contract Subscrypto is Ownable {
         subscribers[msg.sender] = Subscriber(block.timestamp, 1);
     }
 
-    // TODO:
-    function cancelSubscription() external {}
+    function cancelSubscription(address _address) external {
+        require(
+            _address == msg.sender || msg.sender == owner(),
+            "only sbscriber or owner can cencel subscriptions"
+        );
+        removeSubscriber(_address);
+    }
 
     function getPaymentTargets()
         external
@@ -56,7 +76,7 @@ contract Subscrypto is Ownable {
         returns (address[] memory)
     {
         // https://fravoll.github.io/solidity-patterns/memory_array_building.html
-        // もっと良い方法ない？
+        // もっと良い方法ない？この辺の処理をoffchainでやる前提にしてしまえばarrayでaddress保持する必要はなくなるが。
         address[] memory targets = new address[](subscriberAddresses.length);
         uint256 counter = 0;
         for (uint256 i = 0; i < subscriberAddresses.length; i++) {
@@ -79,17 +99,26 @@ contract Subscrypto is Ownable {
             if (subscriberAddress == address(0)) {
                 continue;
             }
+
             Subscriber storage subscriber = subscribers[subscriberAddress];
+            // 存在しないkeyを指定した場合、初期化されたSubscriberが返ってくるのでstartAtの値で判定できる。
+            require(subscriber.startAt > 0, "user not found");
 
             require(
                 block.timestamp >
                     (subscriber.startAt + subscriber.count * interval),
                 "Already paid"
             );
-            require(
-                token.transferFrom(subscriberAddress, address(this), price),
-                "Subscription payment failed."
+
+            bool result = token.transferFrom(
+                subscriberAddress,
+                address(this),
+                price
             );
+            if (!result) {
+                removeSubscriber(subscriberAddress);
+                revert("Subscription payment failed.");
+            }
 
             subscriber.count += 1;
         }
