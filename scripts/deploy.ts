@@ -1,22 +1,18 @@
 import { ethers } from "hardhat";
+const PRICE = 10;
+const INTERVAL = 60 * 60; //1 hour
+// Binance USD on testnet
+const TOKEN_ADDRESS = "0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee";
 
 async function main() {
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
-  const unlockTime = currentTimestampInSeconds + ONE_YEAR_IN_SECS;
+  const Subscrypto = await ethers.getContractFactory("Subscrypto");
+  const subscrypto = await Subscrypto.deploy(TOKEN_ADDRESS, PRICE, INTERVAL);
 
-  const lockedAmount = ethers.utils.parseEther("1");
+  await subscrypto.deployed();
 
-  const Lock = await ethers.getContractFactory("Lock");
-  const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
-
-  await lock.deployed();
-
-  console.log("Lock with 1 ETH deployed to:", lock.address);
+  console.log("Subscrypto deployed to:", subscrypto.address);
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
 main().catch((error) => {
   console.error(error);
   process.exitCode = 1;

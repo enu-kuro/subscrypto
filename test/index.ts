@@ -15,8 +15,15 @@ export async function deploy(contractName: string, ...args: any[]) {
 
 describe("Subscrypto", function () {
   async function deployFixture() {
-    const [owner, account1, account2, account3, account4, account5] =
-      await ethers.getSigners();
+    const [
+      owner,
+      account1,
+      account2,
+      account3,
+      account4,
+      account5,
+      chainlinkAccount,
+    ] = await ethers.getSigners();
 
     const token = (await deploy(
       "ERC20Mock",
@@ -28,6 +35,7 @@ describe("Subscrypto", function () {
     await token.mint(account2.address, SUBSCRIBER_TOKEN_AMOUNT);
     await token.mint(account3.address, SUBSCRIBER_TOKEN_AMOUNT);
     await token.mint(account4.address, SUBSCRIBER_TOKEN_AMOUNT);
+    await token.mint(chainlinkAccount.address, SUBSCRIBER_TOKEN_AMOUNT);
 
     const subscrypto = (await deploy(
       "Subscrypto",
@@ -45,6 +53,7 @@ describe("Subscrypto", function () {
       account3,
       account4,
       account5,
+      chainlinkAccount,
     };
   }
 
@@ -190,9 +199,7 @@ describe("Subscrypto", function () {
       .approve(subscrypto.address, ethers.constants.MaxUint256);
     await subscrypto.connect(account3).subscribe();
 
-    const targets = (
-      await subscrypto.connect(owner).getPaymentTargets()
-    ).filter((target) => target !== ethers.constants.AddressZero);
+    const targets = await subscrypto.connect(owner).getPaymentTargets();
 
     expect(targets.length).to.equal(2);
 
@@ -270,5 +277,44 @@ describe("Subscrypto", function () {
     await expect(
       subscrypto.connect(account1).withdrawToken(balance)
     ).to.be.revertedWith("Ownable: caller is not the owner");
+  });
+
+  it("Chainlink keepers", async function () {
+    const { subscrypto, token, owner, account1, chainlinkAccount } =
+      await loadFixture(deployFixture);
+
+    const beforeBalance = await token
+      .connect(account1)
+      .balanceOf(account1.address);
+
+    await token
+      .connect(account1)
+      .approve(subscrypto.address, ethers.constants.MaxUint256);
+    await subscrypto.connect(account1).subscribe();
+
+    const [upkeepNeededFalse] = await subscrypto
+      .connect(chainlinkAccount)
+      .checkUpkeep([]);
+    expect(upkeepNeededFalse).to.be.false;
+
+    const timestamp = await time.latest();
+    // ここも+1しないと課金有効にならない？
+    await time.increaseTo(timestamp + INTERVAL + 1);
+
+    const [upkeepNeeded, performData] = await subscrypto
+      .connect(chainlinkAccount)
+      .checkUpkeep([]);
+
+    expect(upkeepNeeded).to.be.true;
+
+    if (upkeepNeeded) {
+      await subscrypto.connect(chainlinkAccount).performUpkeep(performData);
+    }
+
+    const afterBalance = await token
+      .connect(account1)
+      .balanceOf(account1.address);
+
+    expect(beforeBalance.sub(afterBalance).toNumber()).to.equal(PRICE * 2);
   });
 });

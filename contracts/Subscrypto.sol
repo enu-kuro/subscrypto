@@ -4,13 +4,14 @@ pragma solidity ^0.8.9;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "hardhat/console.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@chainlink/contracts/src/v0.8/KeeperCompatible.sol";
 
 // No security consideration!!!
 // TODO: When to take a fee?
 // TODO: Meta Transaction
 // native token使えないかも
 // 毎月同じ日に課金する実装は結構面倒。 参考: https://github.com/bokkypoobah/OrbsSubscriptionSmartContractAudit/blob/alpha/contracts/DateTime.sol
-contract Subscrypto is Ownable {
+contract Subscrypto is Ownable, KeeperCompatibleInterface {
     address public tokenAddress;
     uint256 public price;
     uint256 public interval;
@@ -69,16 +70,22 @@ contract Subscrypto is Ownable {
         removeSubscriber(_address);
     }
 
-    function getPaymentTargets()
-        external
-        view
-        onlyOwner
-        returns (address[] memory)
-    {
+    function getPaymentTargets() public view returns (address[] memory) {
         // https://fravoll.github.io/solidity-patterns/memory_array_building.html
         // もっと良い方法ない？この辺の処理をoffchainでやる前提にしてしまえばarrayでaddress保持する必要はなくなるが。
-        address[] memory targets = new address[](subscriberAddresses.length);
         uint256 counter = 0;
+        for (uint256 i = 0; i < subscriberAddresses.length; i++) {
+            Subscriber memory subscriber = subscribers[subscriberAddresses[i]];
+            if (
+                block.timestamp >
+                (subscriber.startAt + subscriber.count * interval)
+            ) {
+                counter++;
+            }
+        }
+
+        address[] memory targets = new address[](counter);
+        counter = 0;
         for (uint256 i = 0; i < subscriberAddresses.length; i++) {
             Subscriber memory subscriber = subscribers[subscriberAddresses[i]];
             if (
@@ -92,13 +99,10 @@ contract Subscrypto is Ownable {
         return targets;
     }
 
-    function executePayment(address[] calldata addresses) external onlyOwner {
+    function executePayment(address[] memory addresses) public {
         IERC20 token = IERC20(tokenAddress);
         for (uint256 i = 0; i < addresses.length; i++) {
             address subscriberAddress = addresses[i];
-            if (subscriberAddress == address(0)) {
-                continue;
-            }
 
             Subscriber storage subscriber = subscribers[subscriberAddress];
             // 存在しないkeyを指定した場合、初期化されたSubscriberが返ってくるのでstartAtの値で判定できる。
@@ -127,6 +131,28 @@ contract Subscrypto is Ownable {
     function withdrawToken(uint256 _amount) external onlyOwner {
         IERC20 token = IERC20(tokenAddress);
         token.transfer(msg.sender, _amount);
+    }
+
+    // TODO: set conditions for gas optimization.
+    function checkUpkeep(
+        bytes calldata /* checkData */
+    )
+        external
+        view
+        override
+        returns (bool upkeepNeeded, bytes memory performData)
+    {
+        address[] memory targets = getPaymentTargets();
+        if (targets.length > 0) {
+            upkeepNeeded = true;
+        }
+        performData = abi.encode(targets);
+        return (upkeepNeeded, performData);
+    }
+
+    function performUpkeep(bytes calldata performData) external override {
+        address[] memory addresses = abi.decode(performData, (address[]));
+        executePayment(addresses);
     }
 }
 
